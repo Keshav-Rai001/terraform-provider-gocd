@@ -54,7 +54,7 @@ deploy:
     script: make before_install deploy_on_tag
     on:
       tags: true
-      condition: $TRAVIS_GO_VERSION =~ ^1\.9(\.[0-9]+)?$
+      condition: $TRAVIS_GO_VERSION =~ ^1\.10\.([0-9]+|x)?$ && $GOCD_SKIP_SSL_CHECK = 1
   - provider: script
     script: make before_install deploy_on_develop
     on:
