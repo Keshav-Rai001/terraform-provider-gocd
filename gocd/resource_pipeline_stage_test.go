@@ -13,6 +13,10 @@ import (
 
 func testResourceStage(t *testing.T) {
 	t.Run("Basic", testResourceStageBasic)
+	t.Run("FetchMaterials", testResourceStageFetchMaterials)
+	t.Run("FetchMaterialsTrueToFalse", testResourceStageFetchMaterialsTrueToFalse)
+	t.Run("CleanWorkingDirectory", testResourceStageCleanWorkingDirectory)
+	t.Run("NeverCleanupArtefacts", testResourceStageNeverCleanupArtefacts)
 	t.Run("Import", testResourcePipelineStageImportBasic)
 	t.Run("PTypeName", testResourcePipelineStagePtypeName)
 	t.Run("Helpers", testResourcePipelineStageHelpers)
@@ -101,15 +105,97 @@ func testResourceStageBasic(t *testing.T) {
 			{
 				Config: testFile("resource_pipeline_stage.0.rsc.tf"),
 				Check: r.ComposeTestCheckFunc(
-					testCheckPipelineStageExists("gocd_pipeline_stage.test-stage"),
+					testCheckPipelineStageExists("gocd_pipeline_stage.test-stage", true, false, false),
 				),
 			},
 		},
 	})
 }
 
-func testCheckPipelineStageExists(resource string) r.TestCheckFunc {
+func testResourceStageCleanWorkingDirectory(t *testing.T) {
+	r.Test(t, r.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testGocdProviders,
+		CheckDestroy: testGocdStageDestroy,
+		Steps: []r.TestStep{
+			{
+				Config: testFile("resource_pipeline_stage.0.rsc.tf"),
+				Check: r.ComposeTestCheckFunc(
+					testCheckPipelineStageExists("gocd_pipeline_stage.test-stage", true, false, false),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "clean_working_directory", "true"),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "fetch_materials", "false"),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "never_cleanup_artifacts", "false"),
+				),
+			},
+		},
+	})
+}
+
+func testResourceStageFetchMaterials(t *testing.T) {
+	r.Test(t, r.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testGocdProviders,
+		CheckDestroy: testGocdStageDestroy,
+		Steps: []r.TestStep{
+			{
+				Config: testFile("resource_pipeline_stage.1.rsc.tf"),
+				Check: r.ComposeTestCheckFunc(
+					testCheckPipelineStageExists("gocd_pipeline_stage.test-stage", false, true, false),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "clean_working_directory", "false"),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "fetch_materials", "true"),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "never_cleanup_artifacts", "false"),
+				),
+			},
+		},
+	})
+}
+
+func testResourceStageFetchMaterialsTrueToFalse(t *testing.T) {
+	r.Test(t, r.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testGocdProviders,
+		CheckDestroy: testGocdStageDestroy,
+		Steps: []r.TestStep{
+			{
+				Config: testFile("resource_pipeline_stage.1.rsc.tf"),
+				Check: r.ComposeTestCheckFunc(
+					testCheckPipelineStageExists("gocd_pipeline_stage.test-stage", false, true, false),
+				),
+			},
+			{
+				Config: testFile("resource_pipeline_stage.0.rsc.tf"),
+				Check: r.ComposeTestCheckFunc(
+					testCheckPipelineStageExists("gocd_pipeline_stage.test-stage", true, false, false),
+				),
+			},
+		},
+	})
+}
+
+func testResourceStageNeverCleanupArtefacts(t *testing.T) {
+	r.Test(t, r.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testGocdProviders,
+		CheckDestroy: testGocdStageDestroy,
+		Steps: []r.TestStep{
+			{
+				Config: testFile("resource_pipeline_stage.2.rsc.tf"),
+				Check: r.ComposeTestCheckFunc(
+					testCheckPipelineStageExists("gocd_pipeline_stage.test-stage", false, false, true),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "clean_working_directory", "false"),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "fetch_materials", "false"),
+					r.TestCheckResourceAttr("gocd_pipeline_stage.test-stage", "never_cleanup_artifacts", "true"),
+				),
+			},
+		},
+	})
+}
+
+func testCheckPipelineStageExists(resource string, cleanWorkingDir bool, fetchMaterials bool, neverCleanupArtifacts bool) r.TestCheckFunc {
 	return func(s *terraform.State) error {
+		var pipeline *gocd.PipelineTemplate
+		var err error
+
 		rcs := s.RootModule().Resources
 		rs, ok := rcs[resource]
 		if !ok {
@@ -120,21 +206,34 @@ func testCheckPipelineStageExists(resource string) r.TestCheckFunc {
 			return fmt.Errorf("No pipeline stage name is set")
 		}
 
+		if pipeline, _, err = testGocdClient.PipelineTemplates.Get(context.Background(), "test-pipeline-template"); err != nil {
+			return err
+		}
+
+		if pipeline.Stages[0].CleanWorkingDirectory != cleanWorkingDir {
+			return fmt.Errorf("clean_working_directory property not set to %t", cleanWorkingDir)
+		}
+
+		if pipeline.Stages[0].FetchMaterials != fetchMaterials {
+			return fmt.Errorf("fetch_materials property not set to %t", fetchMaterials)
+		}
+
+		if pipeline.Stages[0].NeverCleanupArtifacts != neverCleanupArtifacts {
+			return fmt.Errorf("never_cleanup_artifacts property not set to %t", neverCleanupArtifacts)
+		}
+
 		return nil
 	}
 }
 
 func testGocdStageDestroy(s *terraform.State) error {
-
-	client := testGocdProvider.Meta().(*gocd.Client)
-
 	root := s.RootModule()
 	for _, rs := range root.Resources {
 		if rs.Type != "gocd_pipeline_stage" {
 			continue
 		}
 
-		_, _, err := client.PipelineTemplates.Get(context.Background(), rs.Primary.ID)
+		_, _, err := testGocdClient.PipelineTemplates.Get(context.Background(), rs.Primary.ID)
 		//stage := pt.GetStage()
 		if err == nil {
 			return fmt.Errorf("still exists")
