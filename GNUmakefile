@@ -13,7 +13,8 @@ export GOCD_SKIP_SSL_CHECK=1
 travis: before_install script after_success deploy_on_develop
 
 before_install:
-	go get -u github.com/golang/lint/golint
+	@go get github.com/golang/lint/golint
+	@go install github.com/golang/lint/golint
 	curl https://glide.sh/get | sh
 	glide install
 
@@ -22,9 +23,9 @@ script: testacc
 after_failure: cleanup
 
 after_success: report_coverage cleanup
+	go get github.com/goreleaser/goreleaser
 
 prepare_goreleaser:
-	go get github.com/goreleaser/goreleaser
 	git clean -fd
 	go get
 
@@ -39,10 +40,7 @@ teardown-test-gocd:
 	rm -f godata/server/config/cruise-config.xml
 	docker-compose down
 
-cleanup: teardown-test-gocd clean_files
-
-clean_files:
-	rm -rf godata/server
+cleanup: teardown-test-gocd 
 
 report_coverage:
 	bash <(curl -s https://codecov.io/bash)

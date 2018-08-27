@@ -26,15 +26,8 @@ cache:
   pip: true
 
 before_install:
-  - openssl aes-256-cbc -K $encrypted_79c46fcb1f11_key -iv $encrypted_79c46fcb1f11_iv -in .gitcookies.enc -out .gitcookies -d
+  - openssl aes-256-cbc -K $encrypted_b7c1913c3ccb_key -iv $encrypted_b7c1913c3ccb_iv -in .gitcookies.enc -out $HOME/.gitcookies -d
   - make before_install
-
-install:
-# This script is used by the Travis build to install a cookie for
-# go.googlesource.com so rate limits are higher when using `go get` to fetch
-# packages that live there.
-# See: https://github.com/golang/go/issues/12933
-- bash scripts/gogetcookie.sh
 
 script:
   - make vet
@@ -49,13 +42,15 @@ after_success:
 deploy:
   # We do a `skip_cleanup` because when the docker-compose runs, it creates files in the host file system with the
   # userid `1000`. Our travis user does not have the userid `1000`, so it can not clean those files up, causing the
-  # deploy to break.
+  # deploy to break. We do a `git clean` from the Makefile to perform necessary cleanup.
   - provider: script
-    script: make before_install deploy_on_tag
+    skip_cleanup: true
+    script: make deploy_on_tag
     on:
       tags: true
       condition: $TRAVIS_GO_VERSION =~ ^1\.10\.([0-9]+|x)?$ && $GOCD_SKIP_SSL_CHECK = 1
   - provider: script
-    script: make before_install deploy_on_develop
+    skip_cleanup: true
+    script: make deploy_on_develop
     on:
       branch: develop
